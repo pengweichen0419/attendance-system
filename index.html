@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI工作坊人脸识别考勤系统（云端共享版）</title>
-    <!-- Supabase SDK -->
+    <title>AI工作坊人脸识别考勤签到系统（云端共享）</title>
+    <!-- 本地静态CDN替换国外face-api -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 国内jsdelivr镜像face-api，国内高速 -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         html, body {
@@ -25,7 +26,7 @@
             margin: 0 auto;
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0.12);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
             background: #000;
         }
 
@@ -84,7 +85,7 @@
             background: white;
             border-radius: 12px;
             padding: 20px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0.06);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
 
         .card-title {
@@ -122,10 +123,10 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <!-- 左列：摄像头 -->
+            <!-- 左列：摄像头模块 -->
             <div class="card">
                 <div class="card-title">
-                    <span class="w-2.5 h-2.5 bg-green-500 rounded-full inline-block"></span>
+                    <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
                     实时人脸采集
                 </div>
                 <div id="video-box">
@@ -134,639 +135,475 @@
                 </div>
                 <canvas id="preview-canvas" width="200" height="200"></canvas>
 
-                <div class="flex gap-3 mt-4">
-                    <div class="flex flex-col gap-2 flex-1">
-                        <button id="start-camera" class="btn btn-blue w-full" disabled>开启摄像头</button>
-                        <button id="check-in" class="btn btn-orange w-full" disabled>今日签到（点击后开始识别人脸）</button>
-                        <button id="stop-camera" class="btn btn-gray w-full" disabled>关闭摄像头</button>
-                    </div>
-                    <div class="flex flex-col gap-2 w-36">
-                        <button id="register-face" class="btn btn-green w-full" disabled>录入学生人脸</button>
-                        <button id="calc-absent" class="btn btn-red w-full" disabled>统计今日缺勤</button>
-                    </div>
+                <div class="grid grid-cols-2 gap-3 mt-4">
+                    <button id="open-cam" class="btn btn-blue w-full" disabled>开启摄像头</button>
+                    <button id="register-face" class="btn btn-green w-full" disabled>录入学生人脸</button>
+                    <button id="check-sign" class="btn btn-orange w-full" disabled>今日签到（点击后开始识别人脸）</button>
+                    <button id="stat-absent" class="btn btn-red w-full" disabled>统计今日缺勤</button>
                 </div>
-
-                <p id="status-tip" class="mt-3 text-sm text-gray-500 loading-anim">正在加载AI模型...</p>
+                <button id="close-cam" class="btn btn-gray w-full mt-3" disabled>关闭摄像头</button>
 
                 <div class="mt-3 hidden" id="input-wrap">
-                    <label class="block text-sm text-gray-600 mb-1 font-medium">输入学生姓名：</label>
+                    <label class="block text-sm font-medium mb-1">输入学生姓名：</label>
                     <div class="flex gap-2">
-                        <input type="text" id="student-name" placeholder="请输入姓名"
-                               class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-blue-500 focus:border-blue-500">
-                        <button id="confirm-register" class="btn btn-green" style="padding:8px 16px;">确认录入</button>
+                        <input type="text" id="stu-name" placeholder="请输入姓名" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+                        <button id="confirm-reg" class="btn btn-green text-sm">确认录入</button>
                     </div>
-                    <p class="text-xs text-gray-400 mt-1">请正对摄像头，光线充足，保持表情自然</p>
+                    <p class="text-xs text-gray-400 mt-1">请正对摄像头，光线充足再录入</p>
+                </div>
+
+                <p id="status-tip" class="mt-4 text-sm text-gray-500 loading-anim">正在加载AI模型...</p>
+            </div>
+
+            <!-- 中列：人脸库 + 今日签到 -->
+            <div class="flex flex-col gap-5">
+                <div class="card">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="card-title m-0 p-0">云端学生人脸库 <span id="stu-count" class="text-sm text-gray-400">(0/20)</span></h3>
+                        <button id="clear-all-stu" class="text-xs text-red-500 hover:underline">清空全部</button>
+                    </div>
+                    <div id="stu-list" class="scroll-wrap text-sm text-gray-500">加载云端人脸中...</div>
+                </div>
+                <div class="card flex-1">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="card-title m-0 p-0">今日云端签到记录</h3>
+                        <button id="clear-today-sign" class="text-xs text-red-500 hover:underline">清空今日记录</button>
+                    </div>
+                    <div id="today-sign-list" class="scroll-wrap text-sm">同步云端数据...</div>
                 </div>
             </div>
 
-            <!-- 中列：人脸库 + 签到记录 -->
+            <!-- 右列：配置 + 月度统计 -->
             <div class="flex flex-col gap-5">
                 <div class="card">
-                    <div class="card-title">
-                        <span>云端学生人脸库</span>
-                        <span id="student-count" class="text-sm text-gray-400 font-normal ml-1">(0/20)</span>
-                        <button id="clear-student" class="text-xs text-red-400 hover:text-red-600 ml-auto">清空全部</button>
+                    <h3 class="card-title">工作坊签到范围配置</h3>
+                    <div id="cfg-text" class="text-sm text-gray-500 leading-6">加载配置中...</div>
+                    <div class="grid grid-cols-2 gap-2 mt-3">
+                        <button id="reg-admin" class="btn btn-purple w-full" disabled>录入/更换管理员人脸</button>
+                        <button id="edit-range" class="btn btn-blue w-full" disabled>修改签到地点（管理员验证）</button>
                     </div>
-                    <div id="student-list" class="scroll-wrap text-sm text-gray-500">加载云端人脸中...</div>
+                    <p class="text-xs text-gray-400 mt-2 text-gray-400">修改地点前必须通过管理员人脸识别，签到校验GPS距离</p>
                 </div>
-
                 <div class="card flex-1">
-                    <div class="card-title">
-                        <span>今日云端签到记录</span>
-                        <button id="clear-today-record" class="text-xs text-red-400 hover:text-red-600 ml-auto">清空今日记录</button>
-                    </div>
-                    <div id="today-record" class="scroll-wrap text-sm">同步云端数据...</div>
-                </div>
-            </div>
-
-            <!-- 右列：缺勤 + 工作坊设置 + 月度 -->
-            <div class="flex flex-col gap-5">
-                <div class="card">
-                    <div class="card-title">今日缺勤名单</div>
-                    <div id="absent-list" class="scroll-wrap text-sm tag-absent">点击【统计今日缺勤】生成名单</div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">工作坊签到范围</div>
-                    <div id="workshop-info" class="text-sm text-gray-500 leading-6">加载配置中...</div>
-                    <div class="grid grid-cols-1 gap-2 mt-3">
-                        <button id="register-admin-face" class="btn btn-purple w-full" disabled>录入/更换管理员人脸</button>
-                        <button id="update-workshop-location" class="btn btn-blue w-full" disabled>修改签到地点（管理员验证）</button>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-2">修改地点前必须通过管理员人脸识别，签到时校验定位。</p>
-                </div>
-
-                <div class="card flex-1">
-                    <div class="card-title">
-                        <span>月度云端考勤总库</span>
-                        <select id="month-select" class="border border-gray-300 px-2 py-1 text-sm rounded ml-auto"></select>
-                    </div>
-                    <div id="month-record" class="scroll-wrap text-sm">加载月度数据...</div>
-                    <button id="clear-month-data"
-                            class="w-full mt-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 text-sm font-medium transition">
-                        清空当前月份全部考勤
-                    </button>
+                    <h3 class="card-title">月度云端考勤汇总</h3>
+                    <select id="month-select" class="w-full border rounded px-3 py-2 text-sm mb-3"></select>
+                    <div id="month-data" class="scroll-wrap text-sm">加载月度数据...</div>
+                    <button id="clear-month" class="btn btn-red w-full mt-3 text-sm">清空当前月份全部考勤</button>
                 </div>
             </div>
         </div>
     </div>
 
 <script>
-// ===================== 已填好你的Supabase信息，无需修改 =====================
+// 已填入你的Supabase信息
 const SUPABASE_URL = "https://aldubipgjeqevqwspblm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_tm-k2icbPkF2A2tSfPCiWA_pe8MWMjT";
-// ======================================================================
-
-// 初始化云端数据库
 const { createClient } = supabase;
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// 全局常量
-const MAX_STUDENT = 20;
-const SIGN_RULES = {
-    weekday: { hour: 7, minute: 15, label: '周一至周五7:15' },
-    saturday: { hour: 8, minute: 30, label: '周六8:30' }
-};
+const MAX_STU = 20;
 const FACE_THRESHOLD = 0.45;
-const ADMIN_FACE_THRESHOLD = 0.5;
-const DEFAULT_WORKSHOP_RADIUS = 100;
-const MODEL_URLS = [
-    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights",
-    "https://justadudewhohacks.github.io/face-api.js/models"
-];
-let currentModelUrl = null;
+const ADMIN_THRESHOLD = 0.5;
+const MODEL_PATH = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models";
 
-// DOM缓存
-const videoDom = document.getElementById('camera-video');
-const canvasDom = document.getElementById('face-canvas');
-const ctx = canvasDom.getContext('2d');
-const previewCanvas = document.getElementById('preview-canvas');
-const previewCtx = previewCanvas.getContext('2d');
-const statusTip = document.getElementById('status-tip');
-const studentCountDom = document.getElementById('student-count');
-const workshopInfoDom = document.getElementById('workshop-info');
+// DOM
+const video = document.getElementById("camera-video");
+const faceCanvas = document.getElementById("face-canvas");
+const previewCanvas = document.getElementById("preview-canvas");
+const previewCtx = previewCanvas.getContext("2d");
+const ctx = faceCanvas.getContext("2d");
 
-const btnStartCamera = document.getElementById('start-camera');
-const btnStopCamera = document.getElementById('stop-camera');
-const btnRegister = document.getElementById('register-face');
-const btnCheckIn = document.getElementById('check-in');
-const btnCalcAbsent = document.getElementById('calc-absent');
-const btnClearStudent = document.getElementById('clear-student');
-const btnClearToday = document.getElementById('clear-today-record');
-const btnClearMonth = document.getElementById('clear-month-data');
-const btnConfirmRegister = document.getElementById('confirm-register');
-const btnRegisterAdmin = document.getElementById('register-admin-face');
-const btnUpdateWorkshop = document.getElementById('update-workshop-location');
+const openCamBtn = document.getElementById("open-cam");
+const closeCamBtn = document.getElementById("close-cam");
+const regFaceBtn = document.getElementById("register-face");
+const confirmRegBtn = document.getElementById("confirm-reg");
+const checkSignBtn = document.getElementById("check-sign");
+const statAbsentBtn = document.getElementById("stat-absent");
+const regAdminBtn = document.getElementById("reg-admin");
+const editRangeBtn = document.getElementById("edit-range");
 
-const inputWrap = document.getElementById('input-wrap');
-const studentNameInput = document.getElementById('student-name');
-const studentListDom = document.getElementById('student-list');
-const todayRecordDom = document.getElementById('today-record');
-const absentListDom = document.getElementById('absent-list');
-const monthRecordDom = document.getElementById('month-record');
-const monthSelectDom = document.getElementById('month-select');
+const inputWrap = document.getElementById("input-wrap");
+const stuNameInput = document.getElementById("stu-name");
+const statusTip = document.getElementById("status-tip");
 
-// 全局状态
+const stuListDom = document.getElementById("stu-list");
+const stuCountDom = document.getElementById("stu-count");
+const todaySignDom = document.getElementById("today-sign-list");
+const monthSelectDom = document.getElementById("month-select");
+const monthDataDom = document.getElementById("month-data");
+const cfgTextDom = document.getElementById("cfg-text");
+
+const clearAllStuBtn = document.getElementById("clear-all-stu");
+const clearTodayBtn = document.getElementById("clear-today-sign");
+const clearMonthBtn = document.getElementById("clear-month");
+
+// 全局变量
 let modelLoaded = false;
 let mediaStream = null;
-let detectTimer = null;
-let pendingRegistration = false;
-let localStudentList = [];
-let localAdminFace = null;
-let localWorkshopCfg = null;
+let drawAnim = null;
+let allStudent = [];
+let adminFace = null;
+let workConfig = null;
+let captureFaceDesc = null;
 
-window.onload = async () => {
-    await loadFaceModel();
-    await loadAllCloudData();
-};
-window.onbeforeunload = () => closeCamera();
-
-// 加载全部云端数据
-async function loadAllCloudData() {
-    statusTip.innerText = "同步云端人脸、考勤配置...";
-    // 1. 读取学生人脸
-    const { data: stuData } = await supabase.from("student_face").select("*").order("registered_at");
-    localStudentList = stuData || [];
-    renderStudentList();
-
-    // 2. 读取管理员人脸
-    const { data: adminData } = await supabase.from("admin_face").select("*").limit(1);
-    localAdminFace = adminData?.[0] || null;
-    // 3. 读取签到地点
-    const { data: cfgData } = await supabase.from("workshop_config").select("*").eq("id",1).limit(1);
-    localWorkshopCfg = cfgData?.[0] || null;
-
-    renderWorkshopInfo();
-    await refreshMonthSelect();
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,0)}`;
-    renderTodayRecord(todayStr);
-    statusTip.innerText = "云端数据同步完成";
+// 初始化加载模型
+async function loadFaceModel() {
+    try {
+        statusTip.textContent = "正在加载人脸检测模型...";
+        await faceapi.loadSsdMobilenetv1Model(MODEL_PATH);
+        statusTip.textContent = "正在加载人脸关键点模型...";
+        await faceapi.loadFaceLandmarkModel(MODEL_PATH);
+        statusTip.textContent = "正在加载人脸特征提取模型...";
+        await faceapi.loadFaceRecognitionModel(MODEL_PATH);
+        modelLoaded = true;
+        statusTip.textContent = "✅ AI模型加载完成，可开启摄像头";
+        statusTip.classList.remove("loading-anim");
+        openCamBtn.disabled = false;
+        regAdminBtn.disabled = false;
+        editRangeBtn.disabled = false;
+        await loadCloudAllData();
+    } catch (err) {
+        statusTip.textContent = "❌ AI模型加载失败，请刷新页面或切换网络";
+        console.error("模型加载错误：", err);
+    }
 }
 
-// 学生人脸渲染
-function renderStudentList() {
-    const total = localStudentList.length;
-    studentCountDom.innerText = `(${total}/${MAX_STUDENT})`;
-    if (total === 0) {
-        studentListDom.innerHTML = '<span class="text-gray-400">云端暂无录入学生</span>';
+// 加载云端全部数据
+async function loadCloudAllData() {
+    await loadStudentList();
+    await loadAdminFace();
+    await loadWorkConfig();
+    await renderMonthSelect();
+    await refreshTodaySign();
+}
+
+// 加载学生人脸库
+async function loadStudentList() {
+    const { data, error } = await supabase.from("student_face").select("*").order("registered_at");
+    if (error) return alert("读取人脸库失败：" + error.message);
+    allStudent = data;
+    stuCountDom.textContent = `(${allStudent.length}/${MAX_STU})`;
+    if (allStudent.length === 0) {
+        stuListDom.innerHTML = "<div class='text-gray-400'>暂无录入学生人脸</div>";
         return;
     }
-    let html = '';
-    localStudentList.forEach((item, idx) => {
+    let html = "";
+    allStudent.forEach(item => {
         html += `
-            <div class="py-1.5 border-b border-gray-100 flex justify-between items-center">
-                <span>${idx + 1}. ${item.name}</span>
-                <button data-id="${item.id}" class="text-red-400 hover:text-red-600 del-stu text-xs">删除</button>
-            </div>
-        `;
+        <div class="flex justify-between py-1 border-b border-gray-100">
+            <span>${item.name}</span>
+            <button data-id="${item.id}" class="del-stu text-red-500 text-xs">删除</button>
+        </div>`;
     });
-    studentListDom.innerHTML = html;
-    document.querySelectorAll('.del-stu').forEach(el => {
+    stuListDom.innerHTML = html;
+    // 删除绑定
+    document.querySelectorAll(".del-stu").forEach(el => {
         el.onclick = async () => {
             const delId = el.dataset.id;
+            if (!confirm("确定删除该学生人脸？")) return;
             await supabase.from("student_face").delete().eq("id", delId);
-            await loadAllCloudData();
+            await loadStudentList();
         };
     });
 }
 
-// 加载月份下拉
-async function refreshMonthSelect() {
-    const { data: attData } = await supabase.from("attendance").select("month_key");
-    const monthSet = new Set();
-    attData.forEach(item => monthSet.add(item.month_key));
-    const months = Array.from(monthSet).sort().reverse();
-    monthSelectDom.innerHTML = '';
-    if (months.length === 0) {
-        monthSelectDom.innerHTML = '<option value="">暂无考勤数据</option>';
-        monthRecordDom.innerHTML = '<span class="text-gray-400">暂无月度考勤</span>';
-        return;
-    }
-    months.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m;
-        opt.innerText = m;
-        monthSelectDom.appendChild(opt);
-    });
-    monthSelectDom.value = months[0];
-    renderMonthRecord(months[0]);
-}
-monthSelectDom.onchange = () => renderMonthRecord(monthSelectDom.value);
-
-async function renderMonthRecord(month) {
-    const { data: list } = await supabase.from("attendance").eq("month_key", month).order("sign_time", {asc:false});
-    if (!list || list.length === 0) {
-        monthRecordDom.innerHTML = '<span class="text-gray-400">该月无考勤记录</span>';
-        return;
-    }
-    let html = '';
-    list.forEach(item => {
-        const tagMap = {normal: ['tag-normal', '正常'], late: ['tag-late', '迟到'], absent: ['tag-absent', '缺勤']};
-        const [cls, txt] = tagMap[item.status];
-        html += `
-            <div class="py-2 border-b border-gray-100">
-                <div class="font-medium">${item.name}</div>
-                <div class="${cls}">${txt}</div>
-                <div class="text-xs text-gray-400">日期：${item.date} | ${item.sign_time || '无签到时间'}</div>
-            </div>
-        `;
-    });
-    monthRecordDom.innerHTML = html;
+// 加载管理员人脸
+async function loadAdminFace() {
+    const { data } = await supabase.from("admin_face").select("*").limit(1);
+    adminFace = data.length ? data[0].descriptor : null;
 }
 
-// 签到地点渲染
-function renderWorkshopInfo() {
-    const adminText = localAdminFace ? '已录入管理员人脸' : '未录入管理员人脸';
-    if (!localWorkshopCfg) {
-        workshopInfoDom.innerHTML = `
-            <div>管理员：${adminText}</div>
-            <div>签到地点：云端未设置</div>
-        `;
+// 加载签到配置
+async function loadWorkConfig() {
+    const { data } = await supabase.from("workshop_config").select("*").eq("id", 1).limit(1);
+    if (!data.length) {
+        cfgTextDom.innerHTML = "未设置签到地点，点击修改配置录入地址与范围";
+        workConfig = null;
         return;
     }
-    workshopInfoDom.innerHTML = `
-        <div>管理员：${adminText}</div>
-        <div>地点：${localWorkshopCfg.name}</div>
-        <div>有效范围：${localWorkshopCfg.radius}米</div>
-        <div class="text-xs">经纬度：${localWorkshopCfg.lat.toFixed(6)}, ${localWorkshopCfg.lng.toFixed(6)}</div>
+    workConfig = data[0];
+    cfgTextDom.innerHTML = `
+    <div>地点名称：${workConfig.name}</div>
+    <div>签到有效范围：${workConfig.radius}米</div>
+    <div>定位坐标：${workConfig.lat}, ${workConfig.lng}</div>
     `;
 }
 
-// 时间规则
-function getTodaySignRule(now = new Date()) {
-    const weekDay = now.getDay();
-    if (weekDay === 0) return null;
-    if (weekDay === 6) return SIGN_RULES.saturday;
-    return SIGN_RULES.weekday;
-}
-function isLateByRule(now, rule) {
-    const h = now.getHours(), m = now.getMinutes();
-    return h > rule.hour || (h === rule.hour && m > rule.minute);
-}
-
-// 人脸模型加载
-async function loadFaceModel() {
-    let dotCount = 0;
-    const dotTimer = setInterval(() => {
-        statusTip.innerText = `AI模型加载${'.'.repeat(dotCount||1)}`;
-        dotCount = (dotCount + 1) % 4;
-    },600);
-    for(const url of MODEL_URLS) {
-        try {
-            currentModelUrl = url;
-            await faceapi.nets.ssdMobilenetv1.loadFromUri(url);
-            await faceapi.nets.faceLandmark68Net.loadFromUri(url);
-            await faceapi.nets.faceRecognitionNet.loadFromUri(url);
-            clearInterval(dotTimer);
-            modelLoaded = true;
-            btnStartCamera.disabled = false;
-            btnRegister.disabled = false;
-            btnCheckIn.disabled = false;
-            btnCalcAbsent.disabled = false;
-            btnRegisterAdmin.disabled = false;
-            btnUpdateWorkshop.disabled = false;
-            statusTip.innerText = "✅ AI模型就绪，同步云端数据中";
-            statusTip.classList.remove("loading-anim");
-            return;
-        }catch(e){}
-    }
-    clearInterval(dotTimer);
-    statusTip.innerText = "❌ AI模型加载失败，刷新页面";
-    statusTip.style.color = "#dc2626";
-}
-
-// 摄像头控制
-async function openCamera() {
-    if(!modelLoaded) return alert("AI模型未加载完成");
-    try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}, audio:false});
-        videoDom.srcObject = mediaStream;
-        videoDom.onloadedmetadata = () => {
-            canvasDom.width = videoDom.videoWidth;
-            canvasDom.height = videoDom.videoHeight;
-            startDetectLoop();
-        };
-        btnStartCamera.disabled = true;
-        btnStopCamera.disabled = false;
-        statusTip.innerText = "摄像头开启，实时检测人脸";
-        statusTip.style.color = "#059669";
-    }catch(err){
-        statusTip.innerText = "无法获取摄像头权限";
-        statusTip.style.color = "#dc2626";
-    }
-}
-function closeCamera() {
-    if(mediaStream) mediaStream.getTracks().forEach(t=>t.stop());
-    mediaStream = null;
-    videoDom.srcObject = null;
-    if(detectTimer) cancelAnimationFrame(detectTimer);
-    detectTimer = null;
-    ctx.clearRect(0,0,canvasDom.width,canvasDom.height);
-    previewCanvas.style.display = "none";
-    pendingRegistration = false;
-    btnStartCamera.disabled = false;
-    btnStopCamera.disabled = true;
-    inputWrap.classList.add("hidden");
-    statusTip.innerText = "摄像头已关闭";
-    statusTip.style.color = "#666";
-}
-
-function selectBestFace(faces) {
-    const frameArea = videoDom.videoWidth * videoDom.videoHeight;
-    const valid = faces.filter(f => f.detection.box.width * f.detection.box.height > frameArea * 0.05);
-    if(!valid.length) return null;
-    valid.sort((a,b)=>{
-        const sa = a.detection.box.width * a.detection.box.height;
-        const sb = b.detection.box.width * b.detection.box.height;
-        return sb - sa;
-    });
-    return valid[0];
-}
-
-function startDetectLoop() {
-    async function detect(){
-        if(!mediaStream) return;
-        const faces = await faceapi.detectAllFaces(videoDom, new faceapi.SsdMobilenetv1Options({minConfidence:0.7}))
-            .withFaceLandmarks().withFaceDescriptors();
-        ctx.clearRect(0,0,canvasDom.width,canvasDom.height);
-        const size = {width:canvasDom.width, height:canvasDom.height};
-        const resize = faceapi.resizeResults(faces, size);
-        faceapi.draw.drawDetections(canvasDom, resize);
-        faceapi.draw.drawFaceLandmarks(canvasDom, resize);
-        if(resize.length > 0) {
-            const best = selectBestFace(resize);
-            if(best) {
-                const box = best.detection.box;
-                ctx.strokeStyle="#0f0"; ctx.lineWidth=3;
-                ctx.strokeRect(box.x,box.y,box.width,box.height);
-            }
-            if(pendingRegistration && best) showFacePreview(best);
-        }
-        detectTimer = requestAnimationFrame(detect);
-    }
-    detect();
-}
-function showFacePreview(detection) {
-    const box = detection.detection.box;
-    const scale = 200 / Math.max(box.width, box.height);
-    previewCanvas.width = 200; previewCanvas.height=200;
-    previewCtx.fillRect(0,0,200,200);
-    previewCtx.drawImage(videoDom, box.x, box.y, box.width, box.height,
-        (200-box.width*scale)/2, (200-box.height*scale)/2, box.width*scale, box.height*scale);
-    previewCanvas.style.display = "block";
-}
-
-// 录入学生人脸
-btnRegister.onclick = () => {
-    if(!mediaStream) return alert("请先打开摄像头");
-    pendingRegistration = true;
-    inputWrap.classList.remove("hidden");
-    studentNameInput.value = "";
-    studentNameInput.focus();
-    statusTip.innerText = "输入姓名，正对人脸确认录入";
-    statusTip.style.color = "#2563eb";
-};
-studentNameInput.onkeydown = e=>e.key==="Enter" && doRegister();
-btnConfirmRegister.onclick = doRegister;
-
-async function doRegister() {
-    const name = studentNameInput.value.trim();
-    if(!name) return alert("填写学生姓名");
-    if(localStudentList.length >= MAX_STUDENT) return alert("最多录入20人");
-    statusTip.innerText = "采集人脸特征...";
-    const faces = await faceapi.detectAllFaces(videoDom, new faceapi.SsdMobilenetv1Options({minConfidence:0.7}))
-        .withFaceLandmarks().withFaceDescriptors();
-    if(!faces.length) {
-        statusTip.innerText = "未检测人脸";
-        statusTip.style.color = "#dc2626";
+// 刷新今日签到记录
+async function refreshTodaySign() {
+    const today = new Date().toISOString().split("T")[0];
+    const { data } = await supabase.from("attendance").select("*").eq("date", today).order("sign_time");
+    if (!data.length) {
+        todaySignDom.innerHTML = "<div class='text-gray-400'>今日暂无签到记录</div>";
         return;
     }
-    const target = selectBestFace(faces);
-    if(!target) {
-        statusTip.innerText = "人脸过小，请靠近";
-        statusTip.style.color = "#dc2626";
-        return;
-    }
-    // 上传云端
-    const {error} = await supabase.from("student_face").insert({
-        name: name,
-        descriptor: Array.from(target.descriptor)
+    let html = "";
+    data.forEach(item => {
+        let tagClass = "tag-normal";
+        let tagTxt = "正常";
+        if (item.status === "late") { tagClass = "tag-late"; tagTxt = "迟到"; }
+        if (item.status === "absent") { tagClass = "tag-absent"; tagTxt = "缺勤"; }
+        html += `<div class="py-1 border-b border-gray-100">${item.name} <span class="${tagClass}">${tagTxt}</span> ${item.sign_time || "无签到时间"}</div>`;
     });
-    if(error) {
-        alert("录入失败："+error.message);
-        return;
-    }
-    pendingRegistration = false;
-    inputWrap.classList.add("hidden");
-    previewCanvas.style.display = "none";
-    alert(`【${name}】人脸已存入云端，所有人可见`);
-    await loadAllCloudData();
+    todaySignDom.innerHTML = html;
 }
 
-// 定位工具
-function getCurrentPosition() {
-    return new Promise((res, rej)=>{
-        if(!navigator.geolocation) rej("浏览器不支持定位");
-        navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:10000});
-    });
-}
-function calcDistance(lat1,lng1,lat2,lng2) {
-    const R = 6371000;
-    const rad = d => d * Math.PI / 180;
-    const dLat = rad(lat2-lat1);
-    const dLng = rad(lng2-lng1);
-    const a = Math.sin(dLat/2)**2 + Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-// 管理员人脸验证/录入
-async function captureDesc() {
-    if(!mediaStream) { alert("打开摄像头"); return null; }
-    const faces = await faceapi.detectAllFaces(videoDom, new faceapi.SsdMobilenetv1Options({minConfidence:0.7}))
-        .withFaceLandmarks().withFaceDescriptors();
-    if(!faces.length) return null;
-    return selectBestFace(faces).descriptor;
-}
-async function verifyAdmin() {
-    if(!localAdminFace) {
-        alert("未设置管理员人脸"); return false;
-    }
-    const desc = await captureDesc();
-    if(!desc) return false;
-    const dist = faceapi.euclideanDistance(desc, new Float32Array(localAdminFace.descriptor));
-    if(dist >= ADMIN_FACE_THRESHOLD) {
-        alert("管理员验证失败");
-        return false;
-    }
-    return true;
-}
-btnRegisterAdmin.onclick = async () => {
-    if(localAdminFace) {
-        const ok = await verifyAdmin();
-        if(!ok) return;
-        if(!confirm("确认更换管理员人脸？")) return;
-    }else if(!confirm("将当前人脸设为云端管理员？")) return;
-    const desc = await captureDesc();
-    if(!desc) return;
-    // 先清空旧管理员
-    await supabase.from("admin_face").delete().neq("id",0);
-    await supabase.from("admin_face").insert({descriptor: Array.from(desc)});
-    alert("管理员人脸上传云端成功");
-    await loadAllCloudData();
-};
-btnUpdateWorkshop.onclick = async () => {
-    const ok = await verifyAdmin();
-    if(!ok) return;
-    try {
-        const pos = await getCurrentPosition();
-        const name = prompt("签到地点名称", localWorkshopCfg?.name || "工作坊");
-        const radius = Number(prompt("有效签到米数", localWorkshopCfg?.radius || DEFAULT_WORKSHOP_RADIUS));
-        if(isNaN(radius) || radius <=0) return alert("范围数字无效");
-        // 覆盖云端配置
-        await supabase.from("workshop_config").upsert({
-            id:1,
-            name: name,
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            radius: radius
-        });
-        alert("签到地点已同步到云端");
-        await loadAllCloudData();
-    }catch(e){
-        alert("定位失败："+e);
-    }
-};
-
-// 签到主逻辑
-btnCheckIn.onclick = async function() {
-    const today = new Date();
-    const rule = getTodaySignRule(today);
-    if(!rule) return alert("周日无需签到");
-    if(!mediaStream) return alert("开启摄像头");
-    // 校验定位
-    if(!localWorkshopCfg) return alert("管理员未设置签到区域");
-    try {
-        const pos = await getCurrentPosition();
-        const dis = calcDistance(pos.coords.latitude, pos.coords.longitude, localWorkshopCfg.lat, localWorkshopCfg.lng);
-        if(dis > localWorkshopCfg.radius) return alert("超出签到范围，禁止打卡");
-    }catch(e){
-        return alert("获取定位失败，无法签到");
-    }
-    // 识别人脸
-    const faces = await faceapi.detectAllFaces(videoDom, new faceapi.SsdMobilenetv1Options({minConfidence:0.7}))
-        .withFaceLandmarks().withFaceDescriptors();
-    if(!faces.length) return alert("未检测人脸");
-    const targetFace = selectBestFace(faces);
-    if(!targetFace) return alert("人脸过小");
-    let match = null;
-    let minDist = Infinity;
-    for(const stu of localStudentList) {
-        const d = faceapi.euclideanDistance(targetFace.descriptor, new Float32Array(stu.descriptor));
-        if(d < minDist) { minDist = d; match = stu; }
-    }
-    if(!match || minDist >= FACE_THRESHOLD) return alert("无匹配学生");
-    // 组装签到数据
-    const year = today.getFullYear();
-    const m = String(today.getMonth()+1).padStart(2);
-    const d = String(today.getDate()).padStart(2);
-    const dateStr = `${year}-${m}-${d}`;
-    const monthKey = `${year}-${m}`;
-    let status = isLateByRule(today, rule) ? "late" : "normal";
-    // 先删除今日该学生旧签到，再新增
-    await supabase.from("attendance")
-        .delete()
-        .eq("month_key", monthKey)
-        .eq("date", dateStr)
-        .eq("name", match.name);
-    await supabase.from("attendance").insert({
-        name: match.name,
-        date: dateStr,
-        sign_time: today.toISOString(),
-        status: status,
-        month_key: monthKey
-    });
-    alert(`${match.name}签到成功，云端同步完成`);
-    await refreshMonthSelect();
-    renderTodayRecord(dateStr);
-};
-
-async function renderTodayRecord(dateStr) {
+// 渲染月份下拉
+function renderMonthSelect() {
     const now = new Date();
-    const mk = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,0)}`;
-    const {data} = await supabase.from("attendance").eq("month_key", mk).eq("date", dateStr);
-    if(!data || data.length ===0) {
-        todayRecordDom.innerHTML = "<span class='text-gray-400'>今日无签到</span>";
+    let html = "";
+    for (let i = 0; i < 6; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        html += `<option value="${val}">${val}</option>`;
+    }
+    monthSelectDom.innerHTML = html;
+    loadMonthData();
+}
+
+async function loadMonthData() {
+    const month = monthSelectDom.value;
+    const start = `${month}-01`;
+    const nextM = Number(month.split("-")[1]) + 1;
+    const end = nextM > 12 ? `${Number(month.split("-")[0]) + 1}-01-01` : `${month.split("-")[0]}-${String(nextM).padStart(2, "0")}-01`;
+    const { data } = await supabase.from("attendance").select("*").gte("date", start).lt("date", end).order("date");
+    if (!data.length) {
+        monthDataDom.innerHTML = "<div class='text-gray-400'>该月份暂无考勤数据</div>";
         return;
     }
-    todayRecordDom.innerHTML = data.map(item=>`
-        <div class="py-1.5 border-b flex justify-between">
-            <span>${item.name}</span>
-            <span class="${item.status==='normal'?'tag-normal':'tag-late'}">${item.status==='normal'?'正常':'迟到'}</span>
-            <span class="text-xs text-gray-400">${new Date(item.sign_time).toLocaleString()}</span>
-    `).join("");
+    let html = "";
+    data.forEach(item => {
+        let tagClass = "tag-normal";
+        let tagTxt = "正常";
+        if (item.status === "late") { tagClass = "tag-late"; tagTxt = "迟到"; }
+        if (item.status === "absent") { tagClass = "tag-absent"; tagTxt = "缺勤"; }
+        html += `<div class="py-1 border-b border-gray-100">${item.date} ${item.name} <span class="${tagClass}">${tagTxt}</span></div>`;
+    });
+    monthDataDom.innerHTML = html;
+}
+
+// 开启摄像头
+async function openCamera() {
+    if (!modelLoaded) return alert("AI模型尚未加载完成");
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: 640, height: 480 }, audio: false
+        });
+        video.srcObject = mediaStream;
+        video.onloadedmetadata = () => {
+            faceCanvas.width = video.videoWidth;
+            faceCanvas.height = video.videoHeight;
+            startDrawFrame();
+        };
+        openCamBtn.disabled = true;
+        closeCamBtn.disabled = false;
+        regFaceBtn.disabled = false;
+        checkSignBtn.disabled = false;
+        statAbsentBtn.disabled = false;
+    } catch (err) {
+        alert("摄像头权限被拒绝，请允许页面相机权限：" + err.message);
+    }
+}
+
+// 循环绘制人脸框
+function startDrawFrame() {
+    if (drawAnim) cancelAnimationFrame(drawAnim);
+    async function render() {
+        ctx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+        const faceDetect = await faceapi.detectSingleFace(video).withFaceLandmarks().withFaceDescriptor();
+        if (faceDetect) {
+            const box = faceDetect.detection.box;
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+            captureFaceDesc = faceDetect.descriptor;
+        } else {
+            captureFaceDesc = null;
+        }
+        drawAnim = requestAnimationFrame(render);
+    }
+    render();
+}
+
+// 关闭摄像头
+function closeCamera() {
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+    video.srcObject = null;
+    if (drawAnim) cancelAnimationFrame(drawAnim);
+    ctx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+    openCamBtn.disabled = false;
+    closeCamBtn.disabled = true;
+    regFaceBtn.disabled = true;
+    checkSignBtn.disabled = true;
+    statAbsentBtn.disabled = true;
+    inputWrap.classList.add("hidden");
+    previewCanvas.style.display = "none";
+    captureFaceDesc = null;
+}
+
+// 录入人脸弹窗
+regFaceBtn.onclick = () => {
+    if (!captureFaceDesc) return alert("未检测到人脸，请正对摄像头");
+    inputWrap.classList.remove("hidden");
+    previewCtx.drawImage(video, 0, 0, 200, 200);
+    previewCanvas.style.display = "block";
+    stuNameInput.value = "";
+    stuNameInput.focus();
+};
+
+// 确认录入学生
+confirmRegBtn.onclick = async () => {
+    const name = stuNameInput.value.trim();
+    if (!name) return alert("请输入学生姓名");
+    if (allStudent.length >= MAX_STU) return alert("人脸库已达20人上限，请删除旧人脸再录入");
+    const descArr = Array.from(captureFaceDesc);
+    const { error } = await supabase.from("student_face").insert({ name, descriptor: descArr });
+    if (error) return alert("录入失败：" + error.message);
+    alert(`学生【${name}】人脸录入云端成功`);
+    inputWrap.classList.add("hidden");
+    previewCanvas.style.display = "none";
+    await loadStudentList();
+};
+
+// 人脸签到
+checkSignBtn.onclick = async () => {
+    if (!workConfig) return alert("管理员未配置签到地点，无法签到");
+    if (!captureFaceDesc) return alert("未识别到人脸");
+    // GPS校验
+    const getPos = () => new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 }));
+    let pos;
+    try { pos = await getPos(); } catch { return alert("获取定位失败，请允许定位权限"); }
+    const dis = getDistance(pos.coords.latitude, pos.coords.longitude, workConfig.lat, workConfig.lng);
+    if (dis > workConfig.radius) return alert(`超出签到范围${dis.toFixed(1)}米，当前仅允许${workConfig.radius}米内签到`);
+
+    // 人脸比对
+    let matchName = null;
+    let minDis = 999;
+    allStudent.forEach(item => {
+        const dist = faceapi.euclideanDistance(captureFaceDesc, new Float32Array(item.descriptor));
+        if (dist < FACE_THRESHOLD && dist < minDis) {
+            minDis = dist;
+            matchName = item.name;
+        }
+    });
+    if (!matchName) return alert("未匹配到学生人脸，请重新采集");
+
+    // 判断签到时间
+    const now = new Date();
+    const week = now.getDay();
+    const today = now.toISOString().split("T")[0];
+    const h = now.getHours();
+    const m = now.getMinutes();
+    let status = "normal";
+    if (week === 0) return alert("周日休息，无需签到");
+    if (week >= 1 && week <=5) {
+        if (h >7 || (h ===7 && m>15)) status = "late";
+    }
+    if (week ===6) {
+        if (h>8 || (h===8 && m>30)) status = "late";
+    }
+    const signTime = now.toLocaleString();
+    // 判断今日是否已签到
+    const { data: exist } = await supabase.from("attendance").select("id").eq("date", today).eq("name", matchName).limit(1);
+    if (exist.length) return alert(`${matchName}今日已完成签到，无需重复提交`);
+    await supabase.from("attendance").insert({ date: today, name: matchName, sign_time: signTime, status });
+    alert(`${matchName}签到成功，状态：${status === "normal" ? "正常" : "迟到"}`);
+    await refreshTodaySign();
+};
+
+// 计算两点距离
+function getDistance(lat1, lon1, lat2, lon2) {
+    const rad = Math.PI / 180;
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * rad;
+    const dLon = (lon2 - lon1) * rad;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
 // 统计缺勤
-btnCalcAbsent.onclick = async () => {
-    const today = new Date();
-    const rule = getTodaySignRule(today);
-    if(!rule) return alert("周日无需统计");
-    const y = today.getFullYear();
-    const m = String(today.getMonth()+1).padStart(2);
-    const d = String(today.getDate()).padStart(2);
-    const mk = `${y}-${m}`;
-    const dateStr = `${y}-${m}-${d}`;
-    const {data: signList} = await supabase.from("attendance").eq("month_key", mk).eq("date", dateStr);
-    const signNames = signList.map(i=>i.name);
-    const absent = localStudentList.filter(s=>!signNames.includes(s.name));
-    // 云端写入缺勤记录
-    for(const stu of absent) {
-        const exist = signList.find(x=>x.name===stu.name);
-        if(!exist) {
-            await supabase.from("attendance").insert({
-                name: stu.name,
-                date: dateStr,
-                sign_time: null,
-                status: "absent",
-                month_key: mk
-            });
-        }
+statAbsentBtn.onclick = async () => {
+    const today = new Date().toISOString().split("T")[0];
+    const { data: signList } = await supabase.from("attendance").select("name").eq("date", today);
+    const signedSet = new Set(signList.map(i => i.name));
+    const absentList = allStudent.filter(s => !signedSet.has(s.name));
+    if (!absentList.length) return alert("今日全员签到，无缺勤学生");
+    let txt = "今日缺勤名单：\n";
+    absentList.forEach(i => txt += i.name + "\n");
+    if (!confirm(txt + "\n确认要将以上学生标记为缺勤写入云端？")) return;
+    const now = new Date().toLocaleString();
+    for (const s of absentList) {
+        await supabase.from("attendance").insert({ date: today, name: s.name, sign_time: null, status: "absent" });
     }
-    if(absent.length ===0) {
-        absentListDom.innerHTML = '<span class="tag-normal">今日全员到岗</span>';
-    }else{
-        absentListDom.innerHTML = absent.map(i=>`<div class="py-1 border-b">${i.name}（缺勤）`).join("");
-    }
-    await refreshMonthSelect();
+    alert("缺勤记录已同步云端");
+    await refreshTodaySign();
 };
 
-// 清空按钮事件
-btnClearStudent.onclick = async () => {
-    if(!confirm("删除云端全部学生人脸？不可恢复")) return;
+// 管理员人脸录入
+regAdminBtn.onclick = async () => {
+    if (!mediaStream) return alert("请先开启摄像头");
+    if (!captureFaceDesc) return alert("未检测到人脸");
+    if (adminFace) {
+        const matchDis = faceapi.euclideanDistance(captureFaceDesc, new Float32Array(adminFace));
+        if (matchDis > ADMIN_THRESHOLD) return alert("必须验证原有管理员人脸才能更换");
+    }
+    const descArr = Array.from(captureFaceDesc);
+    await supabase.from("admin_face").delete().neq("id",0);
+    await supabase.from("admin_face").insert({ descriptor: descArr });
+    alert("管理员人脸录入/更换成功");
+    await loadAdminFace();
+};
+
+// 修改签到地点
+editRangeBtn.onclick = async () => {
+    if (!mediaStream || !captureFaceDesc) return alert("开启摄像头并正对人脸验证管理员");
+    if (!adminFace) return alert("未录入管理员人脸，先录入管理员");
+    const dis = faceapi.euclideanDistance(captureFaceDesc, new Float32Array(adminFace));
+    if (dis > ADMIN_THRESHOLD) return alert("管理员人脸验证失败，无法修改配置");
+    const getPos = () => new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 }));
+    let pos;
+    try { pos = await getPos(); } catch { return alert("获取定位失败"); }
+    const name = prompt("输入签到地点名称：", workConfig?.name || "工作坊");
+    if (!name) return;
+    const radius = Number(prompt("输入有效签到半径（米）：", workConfig?.radius || 100));
+    if (isNaN(radius) || radius <=0) return alert("范围必须为正数");
+    await supabase.from("workshop_config").upsert({
+        id:1, name, lat: pos.coords.latitude, lng: pos.coords.longitude, radius
+    });
+    alert("签到配置更新成功");
+    await loadWorkConfig();
+};
+
+// 清空按钮绑定
+clearAllStuBtn.onclick = async () => {
+    if (!confirm("确定删除云端全部学生人脸？无法恢复")) return;
     await supabase.from("student_face").delete().neq("id",0);
-    await loadAllCloudData();
+    await loadStudentList();
 };
-btnClearToday.onclick = async () => {
-    const today = new Date();
-    const mk = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,0)}`;
-    const ds = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2)}-${String(today.getDate()).padStart(2)}`;
-    if(!confirm("清空今日云端签到？")) return;
-    await supabase.from("attendance").delete().eq("month_key", mk).eq("date", ds);
-    renderTodayRecord(ds);
-    absentListDom.innerHTML = "点击统计缺勤";
+clearTodayBtn.onclick = async () => {
+    const today = new Date().toISOString().split("T")[0];
+    if (!confirm("清空今日所有签到记录？")) return;
+    await supabase.from("attendance").delete().eq("date", today);
+    await refreshTodaySign();
 };
-btnClearMonth.onclick = async () => {
-    const sel = monthSelectDom.value;
-    if(!sel) return;
-    if(!confirm(`删除${sel}全部云端考勤？`)) return;
-    await supabase.from("attendance").delete().eq("month_key", sel);
-    await refreshMonthSelect();
+clearMonthBtn.onclick = async () => {
+    const m = monthSelectDom.value;
+    if (!confirm(`清空${m}整月考勤记录？`)) return;
+    const start = `${m}-01`;
+    const nextM = Number(m.split("-")[1]) + 1;
+    const end = nextM >12 ? `${Number(m.split("-")[0])+1}-01-01` : `${m.split("-")[0]}-${String(nextM).padStart(2,"0")}-01`;
+    await supabase.from("attendance").delete().gte("date", start).lt("date", end);
+    loadMonthData();
 };
+monthSelectDom.onchange = loadMonthData;
 
-// 绑定基础开关
-btnStartCamera.onclick = openCamera;
-btnStopCamera.onclick = closeCamera;
+openCamBtn.onclick = openCamera;
+closeCamBtn.onclick = closeCamera;
+
+// 页面加载启动
+window.onload = loadFaceModel;
+window.onbeforeunload = closeCamera;
 </script>
 </body>
 </html>
